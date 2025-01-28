@@ -1,176 +1,260 @@
-use std::{time::Duration, io, io::Write, collections::VecDeque};
-use crossterm::{execute, cursor, terminal, event};
-use rand::distributions::{Distribution, Uniform};
+use std::{time::Duration, io, io::Write, collections::VecDeque, thread::sleep};
+use crossterm::{execute, cursor, terminal, event, style, event::Event};
+use rand::distributions::Distribution;
 
+#[derive(PartialEq)]
 enum Direction
 {
     Up, Down, Left, Right
 }
 
-fn main()
-{
-    let termSize = startGame();
-    let mut headPos: (u16,u16) = (termSize.0 / 5, termSize.1 / 2);
-    let mut dir: Direction = Direction::Right;
-    let mut bodyPos: VecDeque<(u16, u16)> = VecDeque::new();
-    let mut growing: u8 = 2;
-    let mut fruitPos: (u16,u16) = (termSize.0 / 5 * 4, termSize.1 / 2);
-    moveCursorTo(fruitPos);
-    print!("■");
-    loop
-    {
-        if event::poll(Duration::from_millis(50)).unwrap()
-        {
-            if let event::Event::Key(event) = event::read().unwrap()
-            {
-                if event.code == event::KeyCode::Char('q')
-                {
-                    break;
-                }
-                else if event.code == event::KeyCode::Up
-                {
-                    dir = Direction::Up;
-                }
-                else if event.code == event::KeyCode::Down
-                {
-                    dir = Direction::Down;
-                }
-                else if event.code == event::KeyCode::Left
-                {
-                    dir = Direction::Left;
-                }
-                else if event.code == event::KeyCode::Right
-                {
-                    dir = Direction::Right;
-                }
-            }
+// +----------+    +------------+    +------------+
+// | Score: 0 |    | Score:  10 |    | Score: 100 |
+// |  Replay  |    |   Replay   |    |   Replay   |
+// |   Quit   |    |    Quit    |    |    Quit    |
+// +----------+    +------------+    +------------+
+
+struct SnakeInfo {
+    pub head_pos: (u16,u16),
+    pub body_pos: VecDeque<(u16,u16)>,
+    pub growing: u8,
+    pub dir: Direction,
+}
+
+impl SnakeInfo {
+    pub fn new(term_size: (u16,u16)) -> Self {
+        SnakeInfo {
+            head_pos: (term_size.0 / 5, term_size.1 / 2),
+            body_pos: VecDeque::new(),
+            growing: 2,
+            dir: Direction::Right,
         }
-        execute!(io::stdout(), cursor::MoveTo(headPos.0, headPos.1));
+    }
+
+    pub fn update(&mut self) {
+        let _ = execute!(io::stdout(), cursor::MoveTo(self.head_pos.0, self.head_pos.1));
         print!("▒");
-        bodyPos.push_back(headPos);
-        if growing > 0
-        {
-            growing -= 1;
+        self.body_pos.push_back(self.head_pos);
+        if self.growing > 0 {
+            self.growing -= 1;
         }
-        else
-        {
-            let pos = bodyPos.pop_front();
-            moveCursorTo(pos.expect("Reason"));
+        else {
+            let _pos = self.body_pos.pop_front();
+            move_cursor_to(_pos.expect("Reason"));
             print!(" ");
         }
-        match dir
-        {
-            Direction::Up => headPos.1 -= 1,
-            Direction::Down => headPos.1 += 1,
-            Direction::Left => headPos.0 -= 1,
-            Direction::Right => headPos.0 += 1
+        match self.dir {
+            Direction::Up => self.head_pos.1 -= 1,
+            Direction::Down => self.head_pos.1 += 1,
+            Direction::Left => self.head_pos.0 -= 1,
+            Direction::Right => self.head_pos.0 += 1
         }
-        moveCursorTo(headPos);
+        move_cursor_to(self.head_pos);
         print!("█");
-        if headPos == fruitPos
-        {
-            growing += 2;
-            fruitPos = placeNewFruit(&bodyPos, termSize);
-            moveCursorTo(fruitPos);
-            print!("■");
+    }
+
+    fn should_be_dead(&mut self, term_size: (u16, u16)) -> bool {
+        for &i in self.body_pos.iter() {
+            if self.head_pos == i {
+                return true;
+            }
         }
-        io::stdout().flush();
-        if shouldBeDead(headPos, &bodyPos, termSize)
-        {
+    
+        return self.head_pos.0 < 1 || self.head_pos.1 < 1 || self.head_pos.0 >= term_size.0 - 1 || self.head_pos.1 >= term_size.1 - 1;
+    }
+}
+
+fn main() {
+    let mut term_size: (u16, u16) = start_game();
+    let mut start_term_size = term_size;
+    let mut middle: (u16,u16) = (start_term_size.0 / 2, start_term_size.1 / 2);
+    let mut fruit_pos: (u16,u16) = (start_term_size.0 / 5 * 4, start_term_size.1 / 2);
+    let mut score: u8 = 0;
+    let mut menu_selection: u8 = 0;
+    let mut playing: bool = true;
+    let mut focused: bool = true;
+    let mut snake: SnakeInfo = SnakeInfo::new(start_term_size);
+    move_cursor_to(fruit_pos);
+    print!("■");
+    'game_loop: loop {
+        sleep(Duration::from_millis(100));
+        loop {
+            if event::poll(Duration::from_millis(0)).unwrap() {
+                match event::read().unwrap() {
+                    Event::FocusGained => focused = true, // TODO unpause properly
+                    Event::FocusLost => focused = false, // TODO pause properly
+                    Event::Key(event) => {
+                        if event.code == event::KeyCode::Char('q') {
+                            break;
+                        }
+                        else if playing {
+                            if event.code == event::KeyCode::Up {
+                                if snake.dir == Direction::Down || snake.dir == Direction::Up {
+                                    continue;
+                                }
+                                snake.dir = Direction::Up;
+                            }
+                            else if event.code == event::KeyCode::Down {
+                                if snake.dir == Direction::Down || snake.dir == Direction::Up {
+                                    continue;
+                                }
+                                snake.dir = Direction::Down;
+                            }
+                            else if event.code == event::KeyCode::Left {
+                                if snake.dir == Direction::Left || snake.dir == Direction::Right {
+                                    continue;
+                                }
+                                snake.dir = Direction::Left;
+                            }
+                            else if event.code == event::KeyCode::Right {
+                                if snake.dir == Direction::Left || snake.dir == Direction::Right {
+                                    continue;
+                                }
+                                snake.dir = Direction::Right;
+                            }
+                        }
+                        else {
+                            if event.code == event::KeyCode::Up || event.code == event::KeyCode::Down {
+                                menu_selection = menu_selection ^ 1;
+                                rewrite_menu(middle, menu_selection, score);
+                            }
+                            else if event.code == event::KeyCode::Enter {
+                                if menu_selection == 0 {
+                                    start_term_size = term_size;
+                                    middle = (start_term_size.0 / 2, start_term_size.1 / 2);
+                                    snake = SnakeInfo::new(start_term_size);
+                                    draw_box((0,0), start_term_size);
+                                    fruit_pos = (start_term_size.0 / 5 * 4, start_term_size.1 / 2);
+                                    move_cursor_to(fruit_pos);
+                                    print!("■");
+                                    score = 0;
+                                    playing = true;
+                                }
+                                else {
+                                    break 'game_loop;
+                                }
+                            }
+                        }
+                    },
+                    Event::Resize(width, height) => {
+                        move_cursor_to((0,0));
+                        print!("Terminal resized, apply in next game");
+                        term_size = (width, height)
+                    },
+                    _default => continue
+                }
+            }
             break;
         }
+        
+        if playing && focused {
+            snake.update();
+            if snake.head_pos == fruit_pos {
+                snake.growing += 2;
+                score += 1;
+                fruit_pos = place_new_fruit(&snake.body_pos, start_term_size);
+                move_cursor_to(fruit_pos);
+                print!("■");
+            }
+            let _ = io::stdout().flush();
+            if snake.should_be_dead(start_term_size) {
+                playing = false;
+                draw_box((middle.0 - 7, middle.1 - 2), (middle.0 + 7, middle.1 + 2));
+                rewrite_menu(middle, menu_selection, score);
+            }
+        }
     }
 
-    endGame();
+    end_game();
+    println!("Score: {:03}", score);
 }
 
-fn placeNewFruit(bPos: &VecDeque<(u16,u16)>, termSize: (u16,u16)) -> (u16, u16)
-{
-    let mut rng = rand::thread_rng();
-    loop
-    {
-        let x = rand::distributions::Uniform::from(1..termSize.0 - 1).sample(&mut rng);
-        let y = rand::distributions::Uniform::from(1..termSize.1 - 1).sample(&mut rng);
-        let nPos: (u16,u16) = (x, y);
+fn rewrite_menu(middle: (u16, u16), selection: u8, score: u8) {
+    move_cursor_to((middle.0 - 6, middle.1 - 1));
+    let _ = print!(" Score: {:03} ", score);
+    move_cursor_to((middle.0 - 6, middle.1));
+    if selection == 0 {
+        let _ = execute!(io::stdout(), style::SetBackgroundColor(style::Color::White), style::SetForegroundColor(style::Color::Black));
+    }
+    let _ = print!("   Replay   ");
+    if selection == 1 {
+        let _ = execute!(io::stdout(), style::SetBackgroundColor(style::Color::White), style::SetForegroundColor(style::Color::Black));
+    }
+    else {
+        let _ = execute!(io::stdout(), style::ResetColor);
+    }
+    move_cursor_to((middle.0 - 6, middle.1 + 1));
+    let _ = print!("    Quit    ");
+    if selection == 1 {
+        let _ = execute!(io::stdout(), style::ResetColor);
+    }
+    let _ = io::stdout().flush();
+}
 
-        if isPositionFree(nPos, bPos)
-        {
-            return nPos;
+fn place_new_fruit(b_pos: &VecDeque<(u16,u16)>, term_size: (u16,u16)) -> (u16, u16) {
+    let mut rng = rand::thread_rng();
+    loop {
+        let x = rand::distributions::Uniform::from(1..term_size.0 - 1).sample(&mut rng);
+        let y = rand::distributions::Uniform::from(1..term_size.1 - 1).sample(&mut rng);
+        let n_pos: (u16,u16) = (x, y);
+
+        if is_position_free(n_pos, b_pos) {
+            return n_pos;
         }
     }
 }
 
-fn isPositionFree(pos: (u16,u16), body: &VecDeque<(u16,u16)>) -> bool
-{
-    for i in body
+fn draw_box(top_left: (u16, u16), bottom_right: (u16, u16)) {
+    move_cursor_to(top_left);
+    let _ = print!("┌");
+    for _i in 1..(bottom_right.0 - top_left.0 - 1)
     {
-        if pos == *i
+        let _ = print!("─");
+    }
+    let _ = print!("┐");
+    for y in (top_left.1 + 1)..(bottom_right.1)
+    {
+        move_cursor_to((top_left.0, y));
+        let _ = print!("│");
+        for _i in 1..(bottom_right.0 - top_left.0 - 1)
         {
+            let _ = print!(" ");
+        }
+        let _ = print!("│");
+    }
+    move_cursor_to((top_left.0, bottom_right.1));
+    let _ = print!("└");
+    for _i in 1..(bottom_right.0 - top_left.0 - 1)
+    {
+        let _ = print!("─");
+    }
+    let _ = print!("┘");
+    let _ = io::stdout().flush();
+}
+
+fn is_position_free(pos: (u16,u16), body: &VecDeque<(u16,u16)>) -> bool {
+    for i in body {
+        if pos == *i {
             return false;
         }
     }
     return true;
 }
 
-fn shouldBeDead(hpos: (u16,u16), bPos: &VecDeque<(u16,u16)>, gSize: (u16, u16)) -> bool
-{
-    for i in bPos
-    {
-        if hpos == *i
-        {
-            return true;
-        }
-    }
-
-    return hpos.0 < 1 || hpos.1 < 1 || hpos.0 >= gSize.0 - 1 || hpos.1 >= gSize.1 - 1;
-}
-
-fn moveCursorTo(pos: (u16,u16))
-{
+fn move_cursor_to(pos: (u16,u16)) {
     let _ = execute!(io::stdout(), cursor::MoveTo(pos.0, pos.1));
 }
 
-fn drawBoard(termSize: (u16, u16))
-{
-    let mut out = io::stdout();
-    let _ = execute!(out, cursor::Hide, cursor::MoveTo(0,0));
-    print!("┌");
-    for _i in 1..(termSize.0 - 1)
-    {
-        print!("─");
-    }
-    print!("┐");
-
-    for _i in 1..(termSize.1 - 1)
-    {
-        execute!(out, cursor::MoveToNextLine(1));
-        print!("│");
-        execute!(out, cursor::MoveToColumn(termSize.0 - 1));
-        print!("│");
-    }
-
-    execute!(out, cursor::MoveToNextLine(1));
-    write!(out, "└");
-    for _i in 1..(termSize.0 - 1)
-    {
-        print!("─");
-    }
-    print!("┘");
-    out.flush();
-}
-
-fn startGame() -> (u16, u16)
-{
-    let _ = execute!(io::stdout(), terminal::EnterAlternateScreen, event::EnableMouseCapture);
+fn start_game() -> (u16, u16) {
+    let _ = execute!(io::stdout(), terminal::EnterAlternateScreen, event::EnableMouseCapture, event::EnableFocusChange, cursor::Hide);
     let _ = terminal::enable_raw_mode();
 
     let t = terminal::size().unwrap();
-    drawBoard(t);
+    draw_box((0,0), t);
     return t;
 }
 
-fn endGame()
-{
+fn end_game() {
     let _ = terminal::disable_raw_mode();
-    let _ = execute!(io::stdout(), terminal::LeaveAlternateScreen, event::DisableMouseCapture);
+    let _ = execute!(io::stdout(), terminal::LeaveAlternateScreen, event::DisableMouseCapture, event::DisableFocusChange);
 }
