@@ -1,4 +1,4 @@
-use std::{time::Duration, io, io::Write, collections::VecDeque, thread::sleep};
+use std::{env, time::Duration, io, io::Write, collections::VecDeque, thread::sleep};
 use crossterm::{execute, cursor, terminal, event, style, event::Event};
 use rand::distributions::Distribution;
 
@@ -65,6 +65,14 @@ impl SnakeInfo {
 }
 
 fn main() {
+    let args: Vec<String> = env::args().collect();
+    let delay = if args.len() > 1 {
+        args[1].parse::<u64>().unwrap()
+    }
+    else {
+        100
+    };
+
     let mut term_size: (u16, u16) = start_game();
     let mut start_term_size = term_size;
     let mut middle: (u16,u16) = (start_term_size.0 / 2, start_term_size.1 / 2);
@@ -77,7 +85,7 @@ fn main() {
     move_cursor_to(fruit_pos);
     print!("■");
     'game_loop: loop {
-        sleep(Duration::from_millis(100));
+        sleep(Duration::from_millis(delay));
         loop {
             if event::poll(Duration::from_millis(0)).unwrap() {
                 match event::read().unwrap() {
@@ -166,7 +174,6 @@ fn main() {
     }
 
     end_game();
-    println!("Score: {:03}", score);
 }
 
 fn rewrite_menu(middle: (u16, u16), selection: u8, score: u8) {
@@ -248,6 +255,7 @@ fn move_cursor_to(pos: (u16,u16)) {
 fn start_game() -> (u16, u16) {
     let _ = execute!(io::stdout(), terminal::EnterAlternateScreen, event::EnableMouseCapture, event::EnableFocusChange, cursor::Hide);
     let _ = terminal::enable_raw_mode();
+    // if these go wrong, the game still works but looks less good, should probably just claim that it failed to launch
 
     let t = terminal::size().unwrap();
     draw_box((0,0), t);
@@ -257,4 +265,5 @@ fn start_game() -> (u16, u16) {
 fn end_game() {
     let _ = terminal::disable_raw_mode();
     let _ = execute!(io::stdout(), terminal::LeaveAlternateScreen, event::DisableMouseCapture, event::DisableFocusChange);
+    // ignore if stuff goes wrong, it's the end of the game anyways
 }
