@@ -264,6 +264,6 @@ fn start_game() -> (u16, u16) {
 
 fn end_game() {
     let _ = terminal::disable_raw_mode();
-    let _ = execute!(io::stdout(), terminal::LeaveAlternateScreen, event::DisableMouseCapture, event::DisableFocusChange);
+    let _ = execute!(io::stdout(), terminal::LeaveAlternateScreen, event::DisableMouseCapture, event::DisableFocusChange, cursor::Show);
     // ignore if stuff goes wrong, it's the end of the game anyways
 }
