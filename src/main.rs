@@ -89,13 +89,10 @@ fn main() {
         loop {
             if event::poll(Duration::from_millis(0)).unwrap() {
                 match event::read().unwrap() {
-                    Event::FocusGained => focused = true, // TODO unpause properly
-                    Event::FocusLost => focused = false, // TODO pause properly
+                    Event::FocusGained => focused = true,
+                    Event::FocusLost => focused = false,
                     Event::Key(event) => {
-                        if event.code == event::KeyCode::Char('q') {
-                            break;
-                        }
-                        else if playing {
+                        if playing {
                             if event.code == event::KeyCode::Up {
                                 if snake.dir == Direction::Down || snake.dir == Direction::Up {
                                     continue;
@@ -160,6 +157,8 @@ fn main() {
             if snake.head_pos == fruit_pos {
                 snake.growing += 2;
                 score += 1;
+                move_cursor_to((2, 0));
+                print!("{{ Score: {} }}", score);
                 fruit_pos = place_new_fruit(&snake.body_pos, start_term_size);
                 move_cursor_to(fruit_pos);
                 print!("■");
