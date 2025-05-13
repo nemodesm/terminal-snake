@@ -19,6 +19,9 @@ struct SnakeInfo {
     pub body_pos: VecDeque<(u16,u16)>,
     pub growing: u8,
     pub dir: Direction,
+    grace_frame: bool,
+    term_size: (u16, u16),
+    is_dead: bool,
 }
 
 impl SnakeInfo {
@@ -28,12 +31,36 @@ impl SnakeInfo {
             body_pos: VecDeque::new(),
             growing: 2,
             dir: Direction::Right,
+            grace_frame: false,
+            term_size: term_size,
+            is_dead: false,
         }
     }
 
+    pub fn has_died(&mut self) -> bool {
+        return self.is_dead;
+    }
+
     pub fn update(&mut self) {
-        let _ = execute!(io::stdout(), cursor::MoveTo(self.head_pos.0, self.head_pos.1));
+        let next_head_pos = match self.dir {
+            Direction::Up => (self.head_pos.0, self.head_pos.1 - 1),
+            Direction::Down => (self.head_pos.0, self.head_pos.1 + 1),
+            Direction::Left => (self.head_pos.0 - 1, self.head_pos.1),
+            Direction::Right => (self.head_pos.0 + 1, self.head_pos.1),
+        };
+        if self.dies_at(next_head_pos) {
+            if self.grace_frame {
+                self.is_dead = true;
+                move_cursor_to(next_head_pos);
+                print!("");
+                return;
+            }
+            self.grace_frame = true;
+            return;
+        }
+        move_cursor_to(self.head_pos);
         print!("▒");
+        self.grace_frame = false;
         self.body_pos.push_back(self.head_pos);
         if self.growing > 0 {
             self.growing -= 1;
@@ -43,24 +70,24 @@ impl SnakeInfo {
             move_cursor_to(_pos.expect("Reason"));
             print!(" ");
         }
-        match self.dir {
-            Direction::Up => self.head_pos.1 -= 1,
-            Direction::Down => self.head_pos.1 += 1,
-            Direction::Left => self.head_pos.0 -= 1,
-            Direction::Right => self.head_pos.0 += 1
-        }
+        self.head_pos = next_head_pos;
         move_cursor_to(self.head_pos);
         print!("█");
     }
 
-    fn should_be_dead(&mut self, term_size: (u16, u16)) -> bool {
+    fn dies_at(&mut self, head_pos: (u16, u16)) -> bool {
         for &i in self.body_pos.iter() {
-            if self.head_pos == i {
+            if head_pos == i {
                 return true;
             }
         }
     
-        return self.head_pos.0 < 1 || self.head_pos.1 < 1 || self.head_pos.0 >= term_size.0 - 1 || self.head_pos.1 >= term_size.1 - 1;
+        return head_pos.0 < 1 || head_pos.1 < 1 || head_pos.0 >= self.term_size.0 - 1 || head_pos.1 >= self.term_size.1 - 1;
+    }
+
+    fn should_be_dead(&mut self) -> bool
+    {
+        return self.dies_at(self.head_pos);
     }
 }
 
@@ -164,7 +191,7 @@ fn main() {
                 print!("■");
             }
             let _ = io::stdout().flush();
-            if snake.should_be_dead(start_term_size) {
+            if snake.has_died() {
                 playing = false;
                 draw_box((middle.0 - 7, middle.1 - 2), (middle.0 + 7, middle.1 + 2));
                 rewrite_menu(middle, menu_selection, score);
